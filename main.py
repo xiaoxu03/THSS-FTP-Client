@@ -79,6 +79,14 @@ class Client:
         self.receive_response()
         self.mode = Mode.PORT
 
+    def syst(self):
+        self.send_command('SYST' + '\r\n')
+        self.receive_response()
+
+    def type(self, type_):
+        self.send_command('TYPE ' + type_ + '\r\n')
+        self.receive_response()
+
     def list(self):
         file_info = []
         all_data = ''
@@ -108,6 +116,8 @@ class Client:
             if not data:
                 break
             all_data += data
+
+        self.receive_response()
 
         self.data_socket.close()
         self.mode = Mode.NONE
@@ -156,6 +166,61 @@ class Client:
         self.data_socket.close()
         self.receive_response()
         self.mode = Mode.NONE
+
+    def stor(self, filedir):
+        file_name = filedir.split('/')[-1]
+        if self.mode == Mode.NONE:
+            msg_box = QMessageBox(QMessageBox.Warning, '警告', '请指定连接模式为PASV或PORT')
+            msg_box.exec_()
+            return
+        elif self.mode == Mode.PASV:
+            self.send_command('STOR ' + file_name + '\r\n')
+            self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.data_socket.connect((self.data_ip, self.data_port))
+        elif self.mode == Mode.PORT:
+            self.send_command('STOR ' + file_name + '\r\n')
+            self.data_socket, addr = self.data_socket.accept()
+            self.receive_response()
+
+        with open(filedir, 'rb') as f:
+            while True:
+                data = f.read(1024)
+                if not data:
+                    break
+                self.data_socket.send(data)
+
+        self.data_socket.close()
+        self.receive_response()
+        self.mode = Mode.NONE
+
+    def cwd(self, dirname):
+        self.send_command('CWD ' + dirname + '\r\n')
+        self.receive_response()
+
+    def mkd(self, dirname):
+        self.send_command('MKD ' + dirname + '\r\n')
+        self.receive_response()
+
+    def pwd(self):
+        self.send_command('PWD' + '\r\n')
+        self.receive_response()
+
+    def rmd(self, dirname):
+        self.send_command('RMD ' + dirname + '\r\n')
+        self.receive_response()
+
+    def rnfr(self, filename):
+        self.send_command('RNFR ' + filename + '\r\n')
+        self.receive_response()
+
+    def rnto(self, filename):
+        self.send_command('RNTO ' + filename + '\r\n')
+        self.receive_response()
+
+    def quit(self):
+        self.send_command('QUIT' + '\r\n')
+        self.receive_response()
+        self.control_socket.close()
 
     def receive_response(self):
         data = self.control_socket.recv(1024).decode()
@@ -206,13 +271,22 @@ class Client:
             msg_box = QMessageBox(QMessageBox.Warning, '警告', '密码不是一个合法的邮箱')
             msg_box.exec_()
             return
-        self.port()
-        # self.pasv()
 
+        self.pasv()
         self.list()
 
         self.pasv()
         self.retr('2.txt')
+
+        self.type('I')
+        self.syst()
+
+        self.pwd()
+        self.mkd('pub')
+        self.cwd('pub')
+
+        self.pasv()
+        self.stor('2.txt')
 
         user_command = 'QUIT' + '\r\n'
         self.send_command(user_command)
