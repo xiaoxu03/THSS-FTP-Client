@@ -44,12 +44,64 @@ class Client:
         self.ui.tableFile.verticalHeader().hide()
         self.ui.tableFile.setShowGrid(False)
         self.ui.tableFile.verticalHeader().setDefaultSectionSize(12)
+        self.ui.buttonConnect.clicked.connect(self.connect)
+        self.ui.buttonCommandInput.clicked.connect(self.send_command_from_editor)
+        self.ui.inputCommandInput.returnPressed.connect(self.send_command_from_editor)
+        self.ui.tableFile.cellDoubleClicked.connect(self.on_double_click)
+
+    def on_double_click(self, row, column):
+        if self.ui.tableFile.item(row, 4).text()[0] == 'd':
+            self.cwd(self.ui.tableFile.item(row, 0).text())
+        else:
+            self.pasv()
+            self.retr(self.ui.tableFile.item(row, 0).text())
 
     def send_command(self, data):
         self.ui.textCommand.insertPlainText("Client: " + data)
         time.sleep(0.05)
         self.control_socket.send(data.encode())
         return
+
+    def send_command_from_editor(self):
+        if self.ui.inputCommandInput.text() == '':
+            msg_box = QMessageBox(QMessageBox.Warning, '警告', '请输入要发送的指令')
+            msg_box.exec_()
+            return
+        command = self.ui.inputCommandInput.text()
+        self.ui.inputCommandInput.clear()
+
+        if command == 'PASV':
+            self.pasv()
+        elif command == 'PORT':
+            self.port()
+        elif command == 'SYST':
+            self.syst()
+        elif command.startswith('TYPE'):
+            type_ = command.split(' ')[1]
+            self.type(type_)
+        elif command == 'LIST':
+            self.list()
+        elif command.startswith('RETR'):
+            self.retr(command.split(' ')[1])
+        elif command.startswith('STOR'):
+            self.stor(command.split(' ')[1])
+        elif command.startswith('CWD'):
+            self.cwd(command.split(' ')[1])
+        elif command.startswith('MKD'):
+            self.mkd(command.split(' ')[1])
+        elif command == 'PWD':
+            self.pwd()
+        elif command.startswith('RMD'):
+            self.rmd(command.split(' ')[1])
+        elif command.startswith('RNFR'):
+            self.rnfr(command.split(' ')[1])
+        elif command.startswith('RNTO'):
+            self.rnto(command.split(' ')[1])
+        elif command == 'QUIT':
+            self.quit()
+        else:
+            self.send_command(command + '\r\n')
+            self.receive_response()
 
     def pasv(self):
         self.send_command('PASV\r\n')
@@ -68,7 +120,6 @@ class Client:
     def port(self):
         self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         res = requests.get('https://myip.ipip.net', timeout=5).text
-        print(res)
         self.data_ip = re.findall(r"\d+.\d+.\d+.\d+", res)[0]
         self.data_socket.bind((self.data_ip, 0))
         self.data_ip = self.data_socket.getsockname()[0]
@@ -103,7 +154,8 @@ class Client:
             self.send_command('LIST\r\n')
             self.data_socket, addr = self.data_socket.accept()
 
-        self.ui.tableFile.clearContents()
+        while self.ui.tableFile.rowCount():
+            self.ui.tableFile.removeRow(0)
 
         server_response = self.receive_response()
         if server_response[0] == '5':
@@ -133,6 +185,9 @@ class Client:
             name = info[8]
             file_info.append([name, edit_time, size, owner, status])
 
+        file_info.sort(key=lambda x: x[0])
+        file_info.sort(key=lambda x: x[4][0], reverse=True)
+
         for i in range(0, len(file_info)):
             self.ui.tableFile.insertRow(i)
             for j in range(0, len(file_info[i])):
@@ -154,7 +209,8 @@ class Client:
         elif self.mode == Mode.PORT:
             self.send_command('RETR ' + filedir + '\r\n')
             self.data_socket, addr = self.data_socket.accept()
-            self.receive_response()
+
+        self.receive_response()
 
         with open(filename, 'wb') as f:
             while True:
@@ -180,7 +236,7 @@ class Client:
         elif self.mode == Mode.PORT:
             self.send_command('STOR ' + file_name + '\r\n')
             self.data_socket, addr = self.data_socket.accept()
-            self.receive_response()
+        self.receive_response()
 
         with open(filedir, 'rb') as f:
             while True:
@@ -195,32 +251,41 @@ class Client:
 
     def cwd(self, dirname):
         self.send_command('CWD ' + dirname + '\r\n')
-        self.receive_response()
+        msg = self.receive_response()
+        if msg.startswith('5'):
+            return
+        elif msg.startswith('2'):
+            msg = self.pwd()
+            self.directory = msg.split('"')[1]
+            self.ui.inputDir.setText(self.directory)
+            self.pasv()
+            self.list()
 
     def mkd(self, dirname):
         self.send_command('MKD ' + dirname + '\r\n')
-        self.receive_response()
+        return self.receive_response()
 
     def pwd(self):
         self.send_command('PWD' + '\r\n')
-        self.receive_response()
+        return self.receive_response()
 
     def rmd(self, dirname):
         self.send_command('RMD ' + dirname + '\r\n')
-        self.receive_response()
+        return self.receive_response()
 
     def rnfr(self, filename):
         self.send_command('RNFR ' + filename + '\r\n')
-        self.receive_response()
+        return self.receive_response()
 
     def rnto(self, filename):
         self.send_command('RNTO ' + filename + '\r\n')
-        self.receive_response()
+        return self.receive_response()
 
     def quit(self):
         self.send_command('QUIT' + '\r\n')
-        self.receive_response()
+        msg = self.receive_response()
         self.control_socket.close()
+        return msg
 
     def receive_response(self):
         data = self.control_socket.recv(1024).decode()
@@ -228,6 +293,38 @@ class Client:
         time.sleep(0.05)
 
         return data
+
+    def connect(self):
+        ip = self.ui.inputIP.text()
+        port = self.ui.inputPort.text()
+        if ip == '':
+            msg_box = QMessageBox(QMessageBox.Warning, '警告', '请输入IP地址')
+            msg_box.exec_()
+            return
+        elif port == '':
+            msg_box = QMessageBox(QMessageBox.Warning, '警告', '请输入端口号')
+            msg_box.exec_()
+            return
+
+        self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.control_socket.settimeout(3)
+        try:
+            self.control_socket.connect((ip, int(port)))
+        except socket.timeout:
+            msg_box = QMessageBox(QMessageBox.Warning, '连接失败', '无法连接到服务器')
+            msg_box.exec_()
+            return
+        except Exception as e:
+            msg_box = QMessageBox(QMessageBox.Warning, '连接失败', '无法连接到服务器')
+            msg_box.exec_()
+            return
+        msg_box = QMessageBox(QMessageBox.Warning, '连接成功', '连接成功')
+        msg_box.exec_()
+
+        self.connect_ip = ip
+        self.connect_port = int(port)
+
+        self.receive_response()
 
     def login(self):
         username = self.ui.inputUsername.text()
@@ -252,16 +349,28 @@ class Client:
             return
 
         self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.control_socket.connect((ip, int(port)))
+        self.control_socket.settimeout(3)
+        try:
+            self.control_socket.connect((ip, int(port)))
+        except socket.timeout:
+            msg_box = QMessageBox(QMessageBox.Warning, '连接失败', '无法连接到服务器')
+            msg_box.exec_()
+            return
+        except Exception as e:
+            msg_box = QMessageBox(QMessageBox.Warning, '连接失败', '无法连接到服务器')
+            msg_box.exec_()
+            return
+        msg_box = QMessageBox(QMessageBox.Warning, '连接成功', '连接成功')
+        msg_box.exec_()
 
         self.connect_ip = ip
         self.connect_port = int(port)
 
-        user_response = self.receive_response()
+        self.receive_response()
 
         user_command = 'USER ' + 'anonymous' + '\r\n'
         self.send_command(user_command)
-        user_response = self.receive_response()
+        self.receive_response()
 
         user_command = 'PASS ' + password + '\r\n'
         self.send_command(user_command)
@@ -271,28 +380,6 @@ class Client:
             msg_box = QMessageBox(QMessageBox.Warning, '警告', '密码不是一个合法的邮箱')
             msg_box.exec_()
             return
-
-        self.pasv()
-        self.list()
-
-        self.pasv()
-        self.retr('2.txt')
-
-        self.type('I')
-        self.syst()
-
-        self.pwd()
-        self.mkd('pub')
-        self.cwd('pub')
-
-        self.pasv()
-        self.stor('2.txt')
-
-        user_command = 'QUIT' + '\r\n'
-        self.send_command(user_command)
-        user_response = self.receive_response()
-
-        self.control_socket.close()
 
 
 def main():

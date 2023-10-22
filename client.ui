@@ -352,6 +352,25 @@
         </widget>
        </item>
        <item>
+        <widget class="QPushButton" name="buttonConnect">
+         <property name="maximumSize">
+          <size>
+           <width>80</width>
+           <height>100</height>
+          </size>
+         </property>
+         <property name="font">
+          <font>
+           <family>AcadEref</family>
+           <pointsize>14</pointsize>
+          </font>
+         </property>
+         <property name="text">
+          <string>连接</string>
+         </property>
+        </widget>
+       </item>
+       <item>
         <spacer name="horizontalSpacer_2">
          <property name="orientation">
           <enum>Qt::Horizontal</enum>
@@ -372,6 +391,7 @@
       <zorder>horizontalSpacer_1</zorder>
       <zorder>horizontalSpacer_2</zorder>
       <zorder>buttonLogin</zorder>
+      <zorder>buttonConnect</zorder>
      </widget>
     </item>
     <item>
@@ -461,7 +481,7 @@
            </widget>
           </item>
           <item>
-           <widget class="QPushButton" name="buttonlabelCommandInput">
+           <widget class="QPushButton" name="buttonCommandInput">
             <property name="maximumSize">
              <size>
               <width>80</width>
