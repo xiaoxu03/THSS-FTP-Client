@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1248</width>
+    <width>1328</width>
     <height>672</height>
    </rect>
   </property>
@@ -371,6 +371,25 @@
         </widget>
        </item>
        <item>
+        <widget class="QPushButton" name="buttonLogout">
+         <property name="maximumSize">
+          <size>
+           <width>80</width>
+           <height>100</height>
+          </size>
+         </property>
+         <property name="font">
+          <font>
+           <family>AcadEref</family>
+           <pointsize>14</pointsize>
+          </font>
+         </property>
+         <property name="text">
+          <string>登出</string>
+         </property>
+        </widget>
+       </item>
+       <item>
         <spacer name="horizontalSpacer_2">
          <property name="orientation">
           <enum>Qt::Horizontal</enum>
@@ -392,6 +411,7 @@
       <zorder>horizontalSpacer_2</zorder>
       <zorder>buttonLogin</zorder>
       <zorder>buttonConnect</zorder>
+      <zorder>buttonLogout</zorder>
      </widget>
     </item>
     <item>
@@ -588,11 +608,37 @@
             </property>
            </widget>
           </item>
+          <item>
+           <widget class="QPushButton" name="buttonUpload">
+            <property name="maximumSize">
+             <size>
+              <width>80</width>
+              <height>700</height>
+             </size>
+            </property>
+            <property name="font">
+             <font>
+              <family>AcadEref</family>
+              <pointsize>14</pointsize>
+             </font>
+            </property>
+            <property name="text">
+             <string>上传</string>
+            </property>
+           </widget>
+          </item>
          </layout>
         </widget>
        </item>
        <item>
         <widget class="QTableWidget" name="tableFile"/>
+       </item>
+       <item>
+        <widget class="QProgressBar" name="progressBar">
+         <property name="value">
+          <number>24</number>
+         </property>
+        </widget>
        </item>
       </layout>
      </widget>

@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 import requests
 import re
-
+import os
 
 from enum import Enum
 
@@ -28,26 +28,39 @@ class Client:
     connect_port: int
     data_ip: str
     data_port: int
+    logged: bool
     control_socket: socket.socket
     data_socket: socket.socket
     ui: client.Ui_MainWindow
 
     def __init__(self, target):
         super().__init__()
+        self.logged = False
+
         self.ui = client.Ui_MainWindow()
         self.ui.setupUi(target)
+        self.ui.progressBar.hide()
         self.ui.tableFile.setColumnCount(5)
         self.ui.tableFile.setHorizontalHeaderLabels(['文件名', '修改时间', '大小', '所有者', '状态'])
         self.ui.tableFile.setSelectionBehavior(1)
         self.ui.tableFile.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.ui.tableFile.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.ui.inputPassword.setEchoMode(QLineEdit.Password)
         self.ui.tableFile.verticalHeader().hide()
         self.ui.tableFile.setShowGrid(False)
         self.ui.tableFile.verticalHeader().setDefaultSectionSize(12)
         self.ui.buttonConnect.clicked.connect(self.connect)
+        self.ui.buttonLogout.clicked.connect(self.logout)
+        self.ui.buttonLogout.setEnabled(False)
         self.ui.buttonCommandInput.clicked.connect(self.send_command_from_editor)
         self.ui.inputCommandInput.returnPressed.connect(self.send_command_from_editor)
         self.ui.tableFile.cellDoubleClicked.connect(self.on_double_click)
+        self.ui.buttonLogin.clicked.connect(self.login)
+        self.ui.buttonUpload.clicked.connect(self.upload)
+        self.ui.buttonUpload.setEnabled(False)
+        self.ui.buttonCommandInput.setEnabled(False)
+        self.ui.inputCommandInput.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.ui.inputDir.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
     def on_double_click(self, row, column):
         if self.ui.tableFile.item(row, 4).text()[0] == 'd':
@@ -62,6 +75,22 @@ class Client:
         self.control_socket.send(data.encode())
         return
 
+    def upload(self):
+        file_name, file_type = QtWidgets.QFileDialog.getOpenFileName(None, "选取文件", os.getcwd(),
+                                                                     "All Files(*)")
+
+        if file_name == '':
+            msg_box = QMessageBox(QMessageBox.Warning, '警告', '请选择文件')
+            msg_box.exec_()
+            return
+        if not self.logged:
+            msg_box = QMessageBox(QMessageBox.Warning, '警告', '请先登录')
+            msg_box.exec_()
+            return
+
+        self.pasv()
+        self.stor(file_name)
+
     def send_command_from_editor(self):
         if self.ui.inputCommandInput.text() == '':
             msg_box = QMessageBox(QMessageBox.Warning, '警告', '请输入要发送的指令')
@@ -74,6 +103,10 @@ class Client:
             self.pasv()
         elif command == 'PORT':
             self.port()
+        elif command.startswith('USER'):
+            self.user(command.split(' ')[1])
+        elif command.startswith('PASS'):
+            self.pass_(command.split(' ')[1])
         elif command == 'SYST':
             self.syst()
         elif command.startswith('TYPE'):
@@ -129,6 +162,55 @@ class Client:
                           ',' + str(self.data_port % 256) + '\r\n')
         self.receive_response()
         self.mode = Mode.PORT
+
+    def user(self, username):
+        self.send_command('USER ' + username + '\r\n')
+        self.receive_response()
+
+    def pass_(self, password):
+        self.send_command('PASS ' + password + '\r\n')
+        pass_response = self.receive_response()
+        if pass_response.startswith('2'):
+            self.logged = True
+            self.ui.buttonLogout.setEnabled(True)
+            self.ui.buttonLogin.setEnabled(False)
+            self.ui.buttonConnect.setEnabled(False)
+            self.ui.inputUsername.setEnabled(False)
+            self.ui.inputPassword.setEnabled(False)
+            self.ui.inputIP.setEnabled(False)
+            self.ui.inputPort.setEnabled(False)
+            self.ui.buttonUpload.setEnabled(True)
+            self.ui.buttonCommandInput.setEnabled(True)
+            self.ui.inputCommandInput.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            self.pasv()
+            self.list()
+        elif pass_response.startswith('5'):
+            self.logged = False
+            msg_box = QMessageBox(QMessageBox.Warning, '警告', '密码不是一个正确的邮箱')
+            msg_box.exec_()
+
+    def logout(self):
+        if self.logged:
+            self.send_command('QUIT' + '\r\n')
+            if self.receive_response().startswith('5'):
+                return
+            self.logged = False
+            self.ui.inputDir.setText('/')
+            self.control_socket.close()
+        while self.ui.tableFile.rowCount():
+            self.ui.tableFile.removeRow(0)
+        self.ui.textCommand.clear()
+        self.ui.buttonLogin.setEnabled(True)
+        self.ui.buttonConnect.setEnabled(True)
+        self.ui.inputUsername.setEnabled(True)
+        self.ui.inputPassword.setEnabled(True)
+        self.ui.inputIP.setEnabled(True)
+        self.ui.inputPort.setEnabled(True)
+        self.ui.buttonUpload.setEnabled(False)
+        self.ui.buttonCommandInput.setEnabled(False)
+        self.ui.buttonLogout.setEnabled(False)
+        self.ui.inputCommandInput.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
 
     def syst(self):
         self.send_command('SYST' + '\r\n')
@@ -209,18 +291,37 @@ class Client:
         elif self.mode == Mode.PORT:
             self.send_command('RETR ' + filedir + '\r\n')
             self.data_socket, addr = self.data_socket.accept()
+        msg = self.receive_response()
+        if not msg.startswith('1'):
+            msg_box = QMessageBox(QMessageBox.Warning, '错误', '未找到文件')
+            msg_box.exec_()
+            return
 
-        self.receive_response()
+        size_str = msg.split('(')[-1]
+        size = int(size_str.split(' ')[0])
+        self.ui.progressBar.show()
+        self.ui.progressBar.setMaximum(size)
+        self.ui.progressBar.setValue(0)
+        received = 0
 
         with open(filename, 'wb') as f:
             while True:
                 data = self.data_socket.recv(1024)
+                received += len(data)
+                self.ui.progressBar.setValue(received)
                 if not data:
                     break
                 f.write(data)
 
         self.data_socket.close()
-        self.receive_response()
+        if self.receive_response().startswith('4'):
+            msg_box = QMessageBox(QMessageBox.Warning, '错误', '文件传输中止')
+            msg_box.exec_()
+            self.ui.progressBar.hide()
+            return
+        msg_box = QMessageBox(QMessageBox.Warning, '成功', '文件下载成功')
+        msg_box.exec_()
+        self.ui.progressBar.hide()
         self.mode = Mode.NONE
 
     def stor(self, filedir):
@@ -236,17 +337,35 @@ class Client:
         elif self.mode == Mode.PORT:
             self.send_command('STOR ' + file_name + '\r\n')
             self.data_socket, addr = self.data_socket.accept()
-        self.receive_response()
+        if not self.receive_response().startswith('1'):
+            msg_box = QMessageBox(QMessageBox.Warning, '错误', '无法上传文件')
+            msg_box.exec_()
+            return
+        self.ui.progressBar.show()
+        size = os.path.getsize(filedir)
+        self.ui.progressBar.setMaximum(size)
+        self.ui.progressBar.setValue(0)
+
+        sent = 0
 
         with open(filedir, 'rb') as f:
             while True:
                 data = f.read(1024)
+                sent += len(data)
+                self.ui.progressBar.setValue(sent)
                 if not data:
                     break
                 self.data_socket.send(data)
 
         self.data_socket.close()
-        self.receive_response()
+        if not self.receive_response().startswith('2'):
+            msg_box = QMessageBox(QMessageBox.Warning, '错误', '文件传输中止')
+            msg_box.exec_()
+            self.ui.progressBar.hide()
+            return
+        msg_box = QMessageBox(QMessageBox.Warning, '成功', '文件上传成功')
+        msg_box.exec_()
+        self.ui.progressBar.hide()
         self.mode = Mode.NONE
 
     def cwd(self, dirname):
@@ -263,7 +382,12 @@ class Client:
 
     def mkd(self, dirname):
         self.send_command('MKD ' + dirname + '\r\n')
-        return self.receive_response()
+        msg = self.receive_response()
+        if msg.startswith('5'):
+            return
+        elif msg.startswith('2'):
+            self.pasv()
+            self.list()
 
     def pwd(self):
         self.send_command('PWD' + '\r\n')
@@ -285,9 +409,13 @@ class Client:
         self.send_command('QUIT' + '\r\n')
         msg = self.receive_response()
         self.control_socket.close()
+        if msg.startswith('2'):
+            self.logged = False
+            self.logout()
         return msg
 
     def receive_response(self):
+        self.ui.textCommand.moveCursor(self.ui.textCommand.textCursor().End)
         data = self.control_socket.recv(1024).decode()
         self.ui.textCommand.insertPlainText("Server: " + data)
         time.sleep(0.05)
@@ -326,20 +454,32 @@ class Client:
 
         self.receive_response()
 
+    def receive_file(self, filename):
+        self.send_command('RETR ' + filename + '\r\n')
+        self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.data_socket.connect((self.data_ip, self.data_port))
+        self.receive_response()
+
+        with open(filename, 'wb') as f:
+            while True:
+                data = self.data_socket.recv(1024)
+                if not data:
+                    break
+                f.write(data)
+
+        self.data_socket.close()
+        self.receive_response()
+
     def login(self):
         username = self.ui.inputUsername.text()
         password = self.ui.inputPassword.text()
         ip = self.ui.inputIP.text()
         port = self.ui.inputPort.text()
         if username == '':
-            msg_box = QMessageBox(QMessageBox.Warning, '警告', '请输入用户名')
-            msg_box.exec_()
-            return
-        elif password == '':
-            msg_box = QMessageBox(QMessageBox.Warning, '警告', '请输入密码')
-            msg_box.exec_()
-            return
-        elif ip == '':
+            username = "anonymous"
+        if password == "":
+            password = "mi@ma"
+        if ip == '':
             msg_box = QMessageBox(QMessageBox.Warning, '警告', '请输入IP地址')
             msg_box.exec_()
             return
@@ -368,18 +508,9 @@ class Client:
 
         self.receive_response()
 
-        user_command = 'USER ' + 'anonymous' + '\r\n'
-        self.send_command(user_command)
-        self.receive_response()
+        self.user(username)
 
-        user_command = 'PASS ' + password + '\r\n'
-        self.send_command(user_command)
-        user_response = self.receive_response()
-
-        if user_response[0] == '5':
-            msg_box = QMessageBox(QMessageBox.Warning, '警告', '密码不是一个合法的邮箱')
-            msg_box.exec_()
-            return
+        self.pass_(password)
 
 
 def main():
@@ -389,10 +520,6 @@ def main():
 
     # 初始化客户端
     my_client = Client(main_window)
-    ui = my_client.ui
-
-    # 初始化设置
-    ui.buttonLogin.clicked.connect(my_client.login)
 
     # 渲染窗口
     main_window.show()
